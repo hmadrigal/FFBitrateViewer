@@ -1,0 +1,120 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish/ubuntu-latest ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            pack_command: mkdir ./artifacts && tar -cvf ./artifacts/build-linux-${{ github.ref_name }}.tar ./publish/ubuntu-latest
+            artifact_name: build-linux-${{ github.ref_name }}.tar
+          - os: windows-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish/windows-latest ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            pack_command: mkdir ./artifacts && Compress-Archive -DestinationPath ./artifacts/build-windows-${{ github.ref_name }}.zip -Path ./publish/windows-latest
+            artifact_name: build-windows-${{ github.ref_name }}.zip
+          - os: macos-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish/macos-latest ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            pack_command: mkdir ./artifacts && tar -cvf ./artifacts/build-macos-${{ github.ref_name }}.tar ./publish/macos-latest
+            artifact_name: build-macos-${{ github.ref_name }}.tar
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install dependencies
+        run: dotnet restore ./src/FFBitrateViewer.sln
+
+      - name: Build
+        run: ${{ matrix.build_command }}
+
+      - name: Publish
+        run: ${{ matrix.publish_command }}
+
+      - name: Pack
+        run: ${{ matrix.pack_command }}
+
+      - name: Archive publish directory
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ./artifacts/${{ matrix.artifact_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifact
+          pattern: '*${{ github.ref_name }}*'
+
+      - name: Display structure of downloaded files
+        run: ls -R
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset build-linux-${{ github.ref_name }}.tar
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifact/build-linux-${{ github.ref_name }}.tar/build-linux-${{ github.ref_name }}.tar
+          asset_name: build-linux-${{ github.ref_name }}.tar
+          asset_content_type: application/tar
+
+      - name: Upload Release Asset build-windows-${{ github.ref_name }}.zip
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifact/build-windows-${{ github.ref_name }}.zip/build-windows-${{ github.ref_name }}.zip
+          asset_name: build-windows-${{ github.ref_name }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload Release Asset build-macos-${{ github.ref_name }}.tar
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifact/build-macos-${{ github.ref_name }}.tar/build-macos-${{ github.ref_name }}.tar
+          asset_name: build-macos-${{ github.ref_name }}.tar
+          asset_content_type: application/tar
+
+          # - name: Release ${{ github.ref }}
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: |
+      #       /home/runner/work/FFBitrateViewer/FFBitrateViewer/build-linux-${{ github.ref_name }}.tar
+      #       /home/runner/work/FFBitrateViewer/FFBitrateViewer/build-windows-${{ github.ref_name }}.zip
+      #       /home/runner/work/FFBitrateViewer/FFBitrateViewer/build-macos-${{ github.ref_name }}.tar
