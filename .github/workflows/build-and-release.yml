@@ -1,0 +1,79 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+          - os: windows-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+          - os: macos-latest
+            build_command: 'dotnet build --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+            publish_command: 'dotnet publish --configuration Release --self-contained true --verbosity Minimal --output ./publish ./src/FFBitrateViewer.ApplicationAvalonia.Desktop'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: ${{ matrix.build_command }}
+
+      - name: Publish
+        run: ${{ matrix.publish_command }}
+
+      - name: Archive publish directory
+        if: success()
+        uses: actions/upload-artifact@v2
+        with:
+          name: build-artifact-${{ runner.os }}
+          path: ./publish
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: build-artifact-${{ matrix.os }}
+          path: ./publish
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./publish
+          asset_name: FFBitrateViewer_${{ github.ref_name }}_${{ runner.os }}.zip
+          asset_content_type: application/zip
